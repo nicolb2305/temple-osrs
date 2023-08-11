@@ -1,13 +1,13 @@
-use std::{collections::BTreeMap, io};
-
+use crate::api::types::{Skills, Timestamp};
+use chrono::{TimeZone, Utc};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use num_format::{Locale, ToFormattedString};
 use ratatui::{
     prelude::*,
     widgets::{Axis, Block, Borders, Chart, Dataset, List, ListItem, ListState},
     Frame, Terminal,
 };
-
-use crate::api::types::{Skills, Timestamp};
+use std::{collections::BTreeMap, io};
 
 pub struct StatefulList {
     pub state: ListState,
@@ -64,33 +64,38 @@ impl App {
     pub fn new(dataset: BTreeMap<Timestamp, Skills>) -> Self {
         Self {
             dataset,
-            skills: StatefulList::with_items(vec![
-                "Overall".to_owned(),
-                "Attack".to_owned(),
-                "Defence".to_owned(),
-                "Strength".to_owned(),
-                "Hitpoints".to_owned(),
-                "Ranged".to_owned(),
-                "Prayer".to_owned(),
-                "Magic".to_owned(),
-                "Cooking".to_owned(),
-                "Woodcutting".to_owned(),
-                "Fletching".to_owned(),
-                "Fishing".to_owned(),
-                "Firemaking".to_owned(),
-                "Crafting".to_owned(),
-                "Smithing".to_owned(),
-                "Mining".to_owned(),
-                "Herblore".to_owned(),
-                "Agility".to_owned(),
-                "Thieving".to_owned(),
-                "Slayer".to_owned(),
-                "Farming".to_owned(),
-                "Runecraft".to_owned(),
-                "Hunter".to_owned(),
-                "Construction".to_owned(),
-                "Ehp".to_owned(),
-            ]),
+            skills: StatefulList::with_items(
+                [
+                    "Overall",
+                    "Attack",
+                    "Defence",
+                    "Strength",
+                    "Hitpoints",
+                    "Ranged",
+                    "Prayer",
+                    "Magic",
+                    "Cooking",
+                    "Woodcutting",
+                    "Fletching",
+                    "Fishing",
+                    "Firemaking",
+                    "Crafting",
+                    "Smithing",
+                    "Mining",
+                    "Herblore",
+                    "Agility",
+                    "Thieving",
+                    "Slayer",
+                    "Farming",
+                    "Runecraft",
+                    "Hunter",
+                    "Construction",
+                    // "Ehp",
+                ]
+                .into_iter()
+                .map(std::borrow::ToOwned::to_owned)
+                .collect(),
+            ),
         }
     }
 
@@ -161,11 +166,10 @@ pub fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Resu
     }
 }
 
-#[allow(clippy::cast_precision_loss)]
 fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .constraints([Constraint::Length(15), Constraint::Percentage(75)].as_ref())
         .split(f.size());
 
     let items: Vec<ListItem> = app
@@ -181,12 +185,12 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
             Style::default()
                 .bg(Color::LightGreen)
                 .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(">> ");
+        );
+    // .highlight_symbol(">> ");
 
     f.render_stateful_widget(items, chunks[0], &mut app.skills.state);
 
-    let Some(overall) = app.get_data() else {
+    let Some(experience) = app.get_data() else {
         return;
     };
 
@@ -195,24 +199,55 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
         .marker(symbols::Marker::Braille)
         .graph_type(ratatui::widgets::GraphType::Line)
         .style(Style::default().fg(Color::White))
-        .data(&overall);
+        .data(&experience);
 
-    let chart = Chart::new(vec![dataset])
+    let hunter = app
+        .dataset
+        .iter()
+        .map(|(k, v)| (k.0.timestamp() as f64, v.hunter as f64))
+        .collect::<Vec<_>>();
+    let dataset2 = Dataset::default()
+        .name("Hunter")
+        .marker(symbols::Marker::Braille)
+        .graph_type(ratatui::widgets::GraphType::Line)
+        .style(Style::default().fg(Color::Green))
+        .data(&hunter);
+
+    let start_date = Utc
+        .timestamp_opt(experience.first().unwrap().0 as i64, 0)
+        .unwrap();
+    let end_date = Utc
+        .timestamp_opt(experience.last().unwrap().0 as i64, 0)
+        .unwrap();
+    let time_difference = end_date - start_date;
+    let mid_point = start_date + time_difference / 2;
+
+    let chart = Chart::new(vec![dataset, dataset2])
         .block(Block::default().borders(Borders::ALL).title("Overall"))
         .x_axis(
             Axis::default()
                 .title("Time")
                 .style(Style::default().fg(Color::Gray))
-                .bounds([overall.first().unwrap().0, overall.last().unwrap().0]),
+                .bounds([experience.first().unwrap().0, experience.last().unwrap().0])
+                .labels(vec![
+                    format!("{}", start_date.format("%Y-%m-%d")).into(),
+                    format!("{}", mid_point.format("%Y-%m-%d")).into(),
+                    format!("{}", end_date.format("%Y-%m-%d")).into(),
+                ])
+                .labels_alignment(Alignment::Right),
         )
         .y_axis(
             Axis::default()
                 .title("Time")
                 .style(Style::default().fg(Color::Gray))
-                .bounds([overall.first().unwrap().1, overall.last().unwrap().1])
+                .bounds([experience.first().unwrap().1, experience.last().unwrap().1])
                 .labels(vec![
-                    "0".into(),
-                    format!("{}", overall.last().unwrap().1).into(),
+                    format!("{:>13}", 0).into(),
+                    format!(
+                        "{:>13}",
+                        (experience.last().unwrap().1 as u64).to_formatted_string(&Locale::en)
+                    )
+                    .into(),
                 ]),
         );
 
