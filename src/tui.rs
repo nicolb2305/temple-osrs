@@ -7,7 +7,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use num_format::{Locale, ToFormattedString};
 use ratatui::{
     prelude::*,
-    widgets::{Axis, Block, Borders, Chart, Dataset, List, ListItem, ListState, Paragraph},
+    widgets::{Axis, Block, Borders, Chart, Dataset, List, ListItem, ListState, Paragraph, Clear},
     Frame, Terminal,
 };
 use std::{collections::BTreeMap, io};
@@ -64,9 +64,10 @@ pub enum InputMode {
 
 pub struct App {
     pub client: Client,
-    pub dataset: BTreeMap<Timestamp, Skills>,
+    pub dataset: Option<BTreeMap<Timestamp, Skills>>,
     pub skills: StatefulList,
     pub cursor_position: usize,
+    pub username: String,
     pub input: String,
     pub input_mode: InputMode,
 }
@@ -74,44 +75,47 @@ pub struct App {
 impl App {
     pub fn new(username: String) -> Self {
         let client = Client::new();
-        let dataset = client.player_datapoints(&username, 1_000_000_000).unwrap();
+        let dataset = client.player_datapoints(&username, 1_000_000_000).ok();
+        let mut skills = StatefulList::with_items(
+            [
+                "Overall",
+                "Attack",
+                "Defence",
+                "Strength",
+                "Hitpoints",
+                "Ranged",
+                "Prayer",
+                "Magic",
+                "Cooking",
+                "Woodcutting",
+                "Fletching",
+                "Fishing",
+                "Firemaking",
+                "Crafting",
+                "Smithing",
+                "Mining",
+                "Herblore",
+                "Agility",
+                "Thieving",
+                "Slayer",
+                "Farming",
+                "Runecraft",
+                "Hunter",
+                "Construction",
+                // "Ehp",
+            ]
+            .into_iter()
+            .map(std::borrow::ToOwned::to_owned)
+            .collect(),
+        );
+        skills.state.select(Some(0));
         Self {
             client,
             dataset,
-            skills: StatefulList::with_items(
-                [
-                    "Overall",
-                    "Attack",
-                    "Defence",
-                    "Strength",
-                    "Hitpoints",
-                    "Ranged",
-                    "Prayer",
-                    "Magic",
-                    "Cooking",
-                    "Woodcutting",
-                    "Fletching",
-                    "Fishing",
-                    "Firemaking",
-                    "Crafting",
-                    "Smithing",
-                    "Mining",
-                    "Herblore",
-                    "Agility",
-                    "Thieving",
-                    "Slayer",
-                    "Farming",
-                    "Runecraft",
-                    "Hunter",
-                    "Construction",
-                    // "Ehp",
-                ]
-                .into_iter()
-                .map(std::borrow::ToOwned::to_owned)
-                .collect(),
-            ),
+            skills,
             cursor_position: username.len(),
-            input: username,
+            input: username.clone(),
+            username,
             input_mode: InputMode::Normal,
         }
     }
@@ -123,9 +127,10 @@ impl App {
         clippy::cast_sign_loss
     )]
     pub fn get_data(&self) -> Option<Vec<(f64, f64)>> {
-        let selected = self.skills.state.selected()?;
+        let selected = self.skills.state.selected().unwrap();
+        let dataset = self.dataset.as_ref()?;
         Some(
-            self.dataset
+            dataset
                 .iter()
                 .map(|(k, v)| {
                     (
@@ -207,10 +212,11 @@ impl App {
     }
 
     fn submit_username(&mut self) {
+        self.username = self.input.clone();
         self.dataset = self
             .client
             .player_datapoints(&self.input, 1_000_000_000)
-            .unwrap();
+            .ok();
         self.input_mode = InputMode::Normal;
     }
 }
@@ -229,7 +235,7 @@ pub fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Resu
                         KeyCode::Char('q') => return Ok(()),
                         KeyCode::Down => app.skills.next(),
                         KeyCode::Up => app.skills.previous(),
-                        KeyCode::Esc => app.skills.unselect(),
+                        // KeyCode::Esc => app.skills.unselect(),
                         KeyCode::Char('e') => app.input_mode = InputMode::Editing,
                         _ => {}
                     };
@@ -319,6 +325,14 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
     f.render_stateful_widget(items, chunks2[0], &mut app.skills.state);
 
     let Some(experience) = app.get_data() else {
+        let block = Block::default().title("Error").borders(Borders::ALL);
+        let text = Paragraph::new(format!("Failed to get data for user: \"{}\".", app.username))
+            .block(block)
+            .alignment(Alignment::Center);
+        let area = centered_rect(40, 15, f.size());
+        f.render_widget(Clear, area); //this clears out the background
+        f.render_widget(text, area);
+        
         return;
     };
 
@@ -331,6 +345,8 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
 
     let hunter = app
         .dataset
+        .as_ref()
+        .unwrap()
         .iter()
         .map(|(k, v)| (k.0.timestamp() as f64, v.hunter as f64))
         .collect::<Vec<_>>();
@@ -380,4 +396,31 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
         );
 
     f.render_widget(chart, chunks2[1]);
+}
+
+/// helper function to create a centered rect using up certain percentage of the available rect `r`
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_y) / 2),
+                Constraint::Percentage(percent_y),
+                Constraint::Percentage((100 - percent_y) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_x) / 2),
+                Constraint::Percentage(percent_x),
+                Constraint::Percentage((100 - percent_x) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(popup_layout[1])[1]
 }
