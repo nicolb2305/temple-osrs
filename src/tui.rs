@@ -273,7 +273,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
                 "q".bold(),
                 " to exit, ".into(),
                 "e".bold(),
-                " to start editing.".bold(),
+                " to edit username.".bold(),
             ],
             Style::default().add_modifier(Modifier::RAPID_BLINK),
         ),
