@@ -46,36 +46,36 @@ pub enum GameMode {
 }
 
 #[repr(transparent)]
-#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Timestamp(DateTime<Utc>);
-
-struct TimestampVisitor;
-
-impl<'de> Visitor<'de> for TimestampVisitor {
-    type Value = Timestamp;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a timestamp in the format %Y-%m-%d %H:%M:%S")
-    }
-
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(Timestamp(DateTime::from_utc(
-            NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M:%S").map_err(|_| {
-                serde::de::Error::invalid_value(serde::de::Unexpected::Str(v), &self)
-            })?,
-            Utc,
-        )))
-    }
-}
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Timestamp(pub DateTime<Utc>);
 
 impl<'de> Deserialize<'de> for Timestamp {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
+        struct TimestampVisitor;
+
+        impl<'de> Visitor<'de> for TimestampVisitor {
+            type Value = Timestamp;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a timestamp in the format %Y-%m-%d %H:%M:%S")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(Timestamp(DateTime::from_utc(
+                    NaiveDateTime::parse_from_str(v, "%Y-%m-%d %H:%M:%S").map_err(|_| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Str(v), &self)
+                    })?,
+                    Utc,
+                )))
+            }
+        }
+
         deserializer.deserialize_str(TimestampVisitor)
     }
 }
