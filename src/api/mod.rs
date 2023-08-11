@@ -12,7 +12,7 @@ struct Data<T> {
 
 #[derive(Default)]
 pub struct Client {
-    client: reqwest::Client,
+    client: reqwest::blocking::Client,
 }
 
 impl Client {
@@ -20,19 +20,17 @@ impl Client {
         Self::default()
     }
 
-    pub async fn player_information(&self, player: &str) -> Result<PlayerInformation> {
+    pub fn player_information(&self, player: &str) -> Result<PlayerInformation> {
         Ok(self
             .client
             .get("https://templeosrs.com/api/player_info.php")
             .query(&[("player", player)])
-            .send()
-            .await?
-            .json::<Data<PlayerInformation>>()
-            .await?
+            .send()?
+            .json::<Data<PlayerInformation>>()?
             .data)
     }
 
-    pub async fn player_datapoints(
+    pub fn player_datapoints(
         &self,
         player: &str,
         time: u32,
@@ -41,10 +39,8 @@ impl Client {
             .client
             .get("https://templeosrs.com/api/player_datapoints.php")
             .query(&[("player", player), ("time", &time.to_string())])
-            .send()
-            .await?
-            .json::<Data<BTreeMap<Timestamp, Skills>>>()
-            .await?
+            .send()?
+            .json::<Data<BTreeMap<Timestamp, Skills>>>()?
             .data)
     }
 }
