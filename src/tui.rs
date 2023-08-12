@@ -426,7 +426,7 @@ mod render {
                 Axis::default()
                     .title("Time")
                     .style(Style::default().fg(Color::Gray))
-                    .bounds([experience.first().unwrap().1, experience.last().unwrap().1])
+                    .bounds([0., experience.last().unwrap().1])
                     .labels(vec![
                         format!("{:>13}", 0).into(),
                         format!(
