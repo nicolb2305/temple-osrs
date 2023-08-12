@@ -2,14 +2,8 @@ use crate::api::{
     types::{Skills, Timestamp},
     Client,
 };
-use chrono::{TimeZone, Utc};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use num_format::{Locale, ToFormattedString};
-use ratatui::{
-    prelude::*,
-    widgets::{Axis, Block, Borders, Chart, Dataset, List, ListItem, ListState, Paragraph, Clear},
-    Frame, Terminal,
-};
+use ratatui::{prelude::*, widgets::ListState, Frame, Terminal};
 use std::{collections::BTreeMap, io};
 
 pub struct StatefulList {
@@ -127,7 +121,7 @@ impl App {
         clippy::cast_sign_loss
     )]
     pub fn get_data(&self) -> Option<Vec<(f64, f64)>> {
-        let selected = self.skills.state.selected().unwrap();
+        let selected = self.skills.state.selected().expect("a selected option");
         let dataset = self.dataset.as_ref()?;
         Some(
             dataset
@@ -255,172 +249,221 @@ pub fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Resu
     }
 }
 
-#[allow(clippy::too_many_lines)]
 fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
-    let chunks = Layout::default()
+    let [edit_message_chunk, edit_chunk, main_chunk] = *Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
             Constraint::Length(3),
             Constraint::Min(1),
         ])
-        .split(f.size());
-
-    let (msg, style) = match app.input_mode {
-        InputMode::Normal => (
-            vec![
-                "Press ".into(),
-                "q".bold(),
-                " to exit, ".into(),
-                "e".bold(),
-                " to edit username.".bold(),
-            ],
-            Style::default().add_modifier(Modifier::RAPID_BLINK),
-        ),
-        InputMode::Editing => (
-            vec![
-                "Press ".into(),
-                "Esc".bold(),
-                " to stop editing, ".into(),
-                "Enter".bold(),
-                " to submit username".into(),
-            ],
-            Style::default(),
-        ),
-    };
-    let mut text = Text::from(Line::from(msg));
-    text.patch_style(style);
-    let help_message = Paragraph::new(text);
-    f.render_widget(help_message, chunks[0]);
-
-    let input = Paragraph::new(app.input.as_str())
-        .style(match app.input_mode {
-            InputMode::Normal => Style::default(),
-            InputMode::Editing => Style::default().fg(Color::Yellow),
-        })
-        .block(Block::default().borders(Borders::ALL).title("Username"));
-    f.render_widget(input, chunks[1]);
-
-    let chunks2 = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(15), Constraint::Percentage(75)].as_ref())
-        .split(chunks[2]);
-
-    let items: Vec<ListItem> = app
-        .skills
-        .items
-        .iter()
-        .map(|i| ListItem::new(i.clone()))
-        .collect();
-
-    let items = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Skill"))
-        .highlight_style(
-            Style::default()
-                .bg(Color::LightGreen)
-                .add_modifier(Modifier::BOLD),
-        );
-    // .highlight_symbol(">> ");
-
-    f.render_stateful_widget(items, chunks2[0], &mut app.skills.state);
-
-    let Some(experience) = app.get_data() else {
-        let block = Block::default().title("Error").borders(Borders::ALL);
-        let text = Paragraph::new(format!("Failed to get data for user: \"{}\".", app.username))
-            .block(block)
-            .alignment(Alignment::Center);
-        let area = centered_rect(40, 15, f.size());
-        f.render_widget(Clear, area); //this clears out the background
-        f.render_widget(text, area);
-        
+        .split(f.size())
+    else {
         return;
     };
 
-    let dataset = Dataset::default()
-        .name(&app.skills.items[app.skills.state.selected().unwrap()])
-        .marker(symbols::Marker::Braille)
-        .graph_type(ratatui::widgets::GraphType::Line)
-        .style(Style::default().fg(Color::White))
-        .data(&experience);
+    let [items_chunk, graph_chunk] = *Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(15), Constraint::Percentage(75)].as_ref())
+        .split(main_chunk)
+    else {
+        return;
+    };
 
-    let hunter = app
-        .dataset
-        .as_ref()
-        .unwrap()
-        .iter()
-        .map(|(k, v)| (k.0.timestamp() as f64, v.hunter as f64))
-        .collect::<Vec<_>>();
-    let dataset2 = Dataset::default()
-        .name("Hunter")
-        .marker(symbols::Marker::Braille)
-        .graph_type(ratatui::widgets::GraphType::Line)
-        .style(Style::default().fg(Color::Green))
-        .data(&hunter);
+    render::textbox(f, app, edit_message_chunk, edit_chunk);
+    render::items(f, app, items_chunk);
 
-    let start_date = Utc
-        .timestamp_opt(experience.first().unwrap().0 as i64, 0)
-        .unwrap();
-    let end_date = Utc
-        .timestamp_opt(experience.last().unwrap().0 as i64, 0)
-        .unwrap();
-    let time_difference = end_date - start_date;
-    let mid_point = start_date + time_difference / 2;
+    let Some(experience) = app.get_data() else {
+        render::popup(f, app);
+        return;
+    };
 
-    let chart = Chart::new(vec![dataset, dataset2])
-        .block(Block::default().borders(Borders::ALL).title("Experience"))
-        .x_axis(
-            Axis::default()
-                .title("Time")
-                .style(Style::default().fg(Color::Gray))
-                .bounds([experience.first().unwrap().0, experience.last().unwrap().0])
-                .labels(vec![
-                    format!("{}", start_date.format("%Y-%m-%d")).into(),
-                    format!("{}", mid_point.format("%Y-%m-%d")).into(),
-                    format!("{}", end_date.format("%Y-%m-%d")).into(),
-                ])
-                .labels_alignment(Alignment::Right),
-        )
-        .y_axis(
-            Axis::default()
-                .title("Time")
-                .style(Style::default().fg(Color::Gray))
-                .bounds([experience.first().unwrap().1, experience.last().unwrap().1])
-                .labels(vec![
-                    format!("{:>13}", 0).into(),
-                    format!(
-                        "{:>13}",
-                        (experience.last().unwrap().1 as u64).to_formatted_string(&Locale::en)
-                    )
-                    .into(),
-                ]),
-        );
-
-    f.render_widget(chart, chunks2[1]);
+    render::chart(f, app, &experience, graph_chunk);
 }
 
-/// helper function to create a centered rect using up certain percentage of the available rect `r`
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-            [
-                Constraint::Percentage((100 - percent_y) / 2),
-                Constraint::Percentage(percent_y),
-                Constraint::Percentage((100 - percent_y) / 2),
-            ]
-            .as_ref(),
-        )
-        .split(r);
+mod render {
+    use super::{App, InputMode};
+    use chrono::{TimeZone, Utc};
+    use num_format::{Locale, ToFormattedString};
+    use ratatui::{
+        prelude::*,
+        widgets::{Axis, Block, Borders, Chart, Clear, Dataset, List, ListItem, Paragraph},
+        Frame,
+    };
 
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(
-            [
-                Constraint::Percentage((100 - percent_x) / 2),
-                Constraint::Percentage(percent_x),
-                Constraint::Percentage((100 - percent_x) / 2),
-            ]
-            .as_ref(),
-        )
-        .split(popup_layout[1])[1]
+    pub fn popup<B: Backend>(f: &mut Frame<B>, app: &mut App) {
+        let block = Block::default().title("Error").borders(Borders::ALL);
+        let text = Paragraph::new(format!(
+            "Failed to get data for user: \"{}\".",
+            app.username
+        ))
+        .block(block)
+        .alignment(Alignment::Center);
+        let area = centered_rect(40, 15, f.size());
+        f.render_widget(Clear, area); //this clears out the background
+        f.render_widget(text, area);
+    }
+
+    pub fn textbox<B: Backend>(
+        f: &mut Frame<B>,
+        app: &mut App,
+        message_chunk: Rect,
+        edit_chunk: Rect,
+    ) {
+        let (msg, style) = match app.input_mode {
+            InputMode::Normal => (
+                vec![
+                    "Press ".into(),
+                    "q".bold(),
+                    " to exit, ".into(),
+                    "e".bold(),
+                    " to edit username.".bold(),
+                ],
+                Style::default().add_modifier(Modifier::RAPID_BLINK),
+            ),
+            InputMode::Editing => (
+                vec![
+                    "Press ".into(),
+                    "Esc".bold(),
+                    " to stop editing, ".into(),
+                    "Enter".bold(),
+                    " to submit username".into(),
+                ],
+                Style::default(),
+            ),
+        };
+
+        let mut text = Text::from(Line::from(msg));
+        text.patch_style(style);
+        let help_message = Paragraph::new(text);
+        f.render_widget(help_message, message_chunk);
+
+        let input = Paragraph::new(app.input.as_str())
+            .style(match app.input_mode {
+                InputMode::Normal => Style::default(),
+                InputMode::Editing => Style::default().fg(Color::Yellow),
+            })
+            .block(Block::default().borders(Borders::ALL).title("Username"));
+        f.render_widget(input, edit_chunk);
+    }
+
+    pub fn items<B: Backend>(f: &mut Frame<B>, app: &mut App, chunk: Rect) {
+        let items: Vec<ListItem> = app
+            .skills
+            .items
+            .iter()
+            .map(|i| ListItem::new(i.clone()))
+            .collect();
+
+        let items = List::new(items)
+            .block(Block::default().borders(Borders::ALL).title("Skill"))
+            .highlight_style(
+                Style::default()
+                    .bg(Color::LightGreen)
+                    .add_modifier(Modifier::BOLD),
+            );
+
+        f.render_stateful_widget(items, chunk, &mut app.skills.state);
+    }
+
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_lossless,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
+    pub fn chart<B: Backend>(
+        f: &mut Frame<B>,
+        app: &mut App,
+        experience: &[(f64, f64)],
+        chunk: Rect,
+    ) {
+        let dataset = Dataset::default()
+            .name(&app.skills.items[app.skills.state.selected().unwrap()])
+            .marker(symbols::Marker::Braille)
+            .graph_type(ratatui::widgets::GraphType::Line)
+            .style(Style::default().fg(Color::White))
+            .data(experience);
+
+        let hunter = app
+            .dataset
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| (k.0.timestamp() as f64, v.hunter as f64))
+            .collect::<Vec<_>>();
+        let dataset2 = Dataset::default()
+            .name("Hunter")
+            .marker(symbols::Marker::Braille)
+            .graph_type(ratatui::widgets::GraphType::Line)
+            .style(Style::default().fg(Color::Green))
+            .data(&hunter);
+
+        let start_date = Utc
+            .timestamp_opt(experience.first().unwrap().0 as i64, 0)
+            .unwrap();
+        let end_date = Utc
+            .timestamp_opt(experience.last().unwrap().0 as i64, 0)
+            .unwrap();
+        let time_difference = end_date - start_date;
+        let mid_point = start_date + time_difference / 2;
+
+        let chart = Chart::new(vec![dataset, dataset2])
+            .block(Block::default().borders(Borders::ALL).title("Experience"))
+            .x_axis(
+                Axis::default()
+                    .title("Time")
+                    .style(Style::default().fg(Color::Gray))
+                    .bounds([experience.first().unwrap().0, experience.last().unwrap().0])
+                    .labels(vec![
+                        format!("{}", start_date.format("%Y-%m-%d")).into(),
+                        format!("{}", mid_point.format("%Y-%m-%d")).into(),
+                        format!("{}", end_date.format("%Y-%m-%d")).into(),
+                    ])
+                    .labels_alignment(Alignment::Right),
+            )
+            .y_axis(
+                Axis::default()
+                    .title("Time")
+                    .style(Style::default().fg(Color::Gray))
+                    .bounds([experience.first().unwrap().1, experience.last().unwrap().1])
+                    .labels(vec![
+                        format!("{:>13}", 0).into(),
+                        format!(
+                            "{:>13}",
+                            (experience.last().unwrap().1 as u64).to_formatted_string(&Locale::en)
+                        )
+                        .into(),
+                    ]),
+            );
+
+        f.render_widget(chart, chunk);
+    }
+
+    /// helper function to create a centered rect using up certain percentage of the available rect `r`
+    fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+        let popup_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    Constraint::Percentage((100 - percent_y) / 2),
+                    Constraint::Percentage(percent_y),
+                    Constraint::Percentage((100 - percent_y) / 2),
+                ]
+                .as_ref(),
+            )
+            .split(r);
+
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(
+                [
+                    Constraint::Percentage((100 - percent_x) / 2),
+                    Constraint::Percentage(percent_x),
+                    Constraint::Percentage((100 - percent_x) / 2),
+                ]
+                .as_ref(),
+            )
+            .split(popup_layout[1])[1]
+    }
 }
